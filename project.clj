@@ -1,4 +1,4 @@
-(defproject ciderale/quick-reset "0.1.0"
+(defproject ciderale/quick-reset "0.1.1"
   :description "Quick Application Reset after Namespace Refresh
                for Rapid Clojure Development Cycles"
   :url "http://github.com/ciderale/quick-reset"
