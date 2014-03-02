@@ -35,7 +35,7 @@ creates a fresh instance of your application, and starts it.
 
 The latest version is 
 ```clojure
-[ciderale/quick-reset "0.5.0"]
+[ciderale/quick-reset "0.1.0"]
 ```
 
 #### Add dependency in your Leiningen `project.clj`
@@ -43,7 +43,7 @@ The latest version is
 ```clojure
 { ;; your project configuration
  :profiles {:dev {:source-paths ["dev"] ; or wherever you put your `user.clj`
-                  :dependencies  [[ciderale/quick-reset "0.5.0"]]}}}
+                  :dependencies  [[ciderale/quick-reset "0.1.0"]]}}}
 ```
 This assumes that your `user.clj` resides in the `dev/` folder within 
 your project.
