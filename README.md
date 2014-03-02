@@ -48,6 +48,14 @@ The latest version is
 This assumes that your `user.clj` resides in the `dev/` folder within 
 your project.
 
+#### Prepare your REPL with code in your `user.clj`
+```clojure
+(ns user 
+  (:use [quick-reset.core :only [set-constructor reset]]))
+ 
+  (set-constructor 'your.namespace/your-constructor)
+```
+
 
 #### Create an application constructor in `your/namespace.clj` of choice
 
@@ -56,16 +64,25 @@ application.
 Note that this function is called for each invocation of
 (reset), after successfully reloading the namespaces.
 
-The following pseudo code illustrates a simple constructor:  
+The following code illustrates a simple application scenario:
 
 ```clojure
-   (defn your-constructor [] 
-     {:port 300
-      :start (fn [x] 
-               (assoc x :server (run-server (:port x)))
-      :stop  (fn [x] 
-               (stop-server (:server x)) 
-               (dissoc x :server)))})
+(ns your.namespace)
+
+(defn start [system]
+  (println "..starting.. was " (:state system))
+  (assoc system :state :started))
+
+(defn stop [system]
+  (println "..stopping.. was " (:state system))
+  (assoc system :state :stopped))
+
+(defn your-constructor  [] 
+  (println "..constructing..")
+  {:state :initialized, :start  start, :stop  stop})
+
+;uncomment and let (quick-reset.core/reset) deals with compilation errors
+;adding-some-unknown-symbol
 ```
 
 The constructor must returns a map representing the initial
@@ -79,14 +96,55 @@ configuration. Note that using other global variables (e.g. via `def`)
 will potentially lead to an incomplete system refresh. You have been
 warned..
 
-#### Prepare your REPL with code in your `user.clj`
+
+## The example in action
+
+The following is the expected output with the above setup
+
 ```clojure
-(ns user 
-  (:use [quick-reset.core :only [set-constructor reset]]))
- 
-  (set-constructor 'your.namespace/your-constructor)
+lein repl
+; quite some output from the REPL startup may interfere/interleave
+user=> (reset)
+:reloading (your.namespace)
+..initializing..
+..starting.. was :initialized
+:ready
+user=> (reset)
+..stopping.. was :started
+:reloading ()
+..initializing..
+..starting.. was :initialized
+:ready
+user=> (quick-reset.core/stop)
+..stopping.. was :started
+:stopped
+user=> (quick-reset.core/start)  ; just start, no reload/re-initialize
+..starting.. was :stopped
+:started
 ```
 
+Adding an `adding-some-unknown-symbol` in `your/namespace.clj` lets
+the refresh fail, but the REPL is still functional, the system is
+:stopped, and (reset) can be called after the error is fixed in the
+source file.
+
+```clojure
+user=> (reset)
+..stopping.. was  :started
+:reloading (your.namespace)
+:error-while-loading your.namespace
+#<CompilerException java.lang.RuntimeException: Unable to resolve symbol: adding-some-unknown-symbol in this context, compiling:(your/namespace.clj:1:1)>
+user=> quick-reset.core/system
+{:state :stopped, 
+ :start #<namespace$start your.namespace$start@534041ec>, 
+ :stop #<namespace$stop your.namespace$stop@54a8e52d>}
+user=> (reset)
+..stopping.. was  :stopped
+:reloading (your.namespace)
+..constructing..
+..starting.. was  :initialized
+:ready
+```
 
 ## Technical Notes
 
