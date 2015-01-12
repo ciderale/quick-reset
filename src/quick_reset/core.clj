@@ -19,10 +19,10 @@
   (doto (Thread. (reify Runnable (run [_] (func))))
     .start))
 
-(defn- require-constructor-ns [sym]
+(defn- require-constructor-ns [& syms]
   (println "quick-reset starts requiring the constructor namespaces")
-  (require (symbol (namespace sym)))
-  (println "quick-reset successfully required namespace of [" sym "]"))
+  (->> syms (map namespace) set (map symbol) (map require))
+  (println "quick-reset successfully required namespace of [" syms "]"))
 
 (defn set-constructor 
   "Set the constructor function that is used to bootstrap a fresh system.
@@ -31,17 +31,40 @@
   Both fields contain unary (state-transition) function. They take
   the current system state as input and return a new system state.
 
-  Example:
+  The 3ary version create the above mentioned map from three functions.
+   - new-sys : () -> system
+   - start-sys : system -> 'started' system 
+   - stop-sys  : system -> 'stopped' system
+
+  Example for the 3ary function:
+  This particularly helpful when working with a component library like
+  e.g. com.stuartsierra/component as c ; then the required call is:
+     (set-constructor 'your-ns/create-system-map 'c/start 'c/stop)
+  with (defn create-system-map [] (c/system-map ... )
+
+  Example for the 1ary call:
   A constructor in namespace 'your-namespace'
      (defn your-constructor[] 
            {:start (fn [current] (assoc current :server (new-server)))
             :stop (fn [current] (dissoc current :server)) })
   can be registered with (eg. in user.clj):
      (set-constructor 'your-namespace/your-constructor)"
-  [new-constructor]
+  ([new-constructor]
   (def loading-thread
     (on-other-thread #(require-constructor-ns new-constructor)))
-  (alter-var-root #'constructor (constantly new-constructor)))
+  (alter-var-root #'constructor (constantly #((resolve new-constructor)))))
+
+  ([new-sys start-sys stop-sys]
+   (def loading-thread
+     (on-other-thread 
+       #(require-constructor-ns new-sys start-sys stop-sys)))
+   (letfn [(act  [action]
+             (fn  [{:keys  [system] :as wrapper}]
+               (assoc wrapper :system  ((resolve action) system))))]
+     (alter-var-root #'constructor 
+       (constantly (fn [_] {:system ((resolve  new-sys)) 
+                            :start (act start-sys)
+                            :stop (act stop-sys)}))))))
 
 (defn- avoid-race-condition-with-constructor-requiring-thread 
   "The thread should only be joined *after* the REPL has fully started.
@@ -55,7 +78,8 @@
   This state is currently a singleton and behaves a bit like a state monad."
   [] 
   (avoid-race-condition-with-constructor-requiring-thread)
-  (alter-var-root #'system (constantly ((resolve constructor)))))
+  (alter-var-root #'system constructor))
+  ;(alter-var-root #'system (constantly (constructor))))
 
 (defn- monadic-call [key]
   (when system
@@ -77,3 +101,4 @@
 (defn reset
   "Stops the system, reloads modified source files, and restarts it."
   [] (stop) (refresh :after 'quick-reset.core/go))
+
