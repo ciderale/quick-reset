@@ -3,26 +3,32 @@
   quick-reset.core
   (:require [clojure.tools.namespace.repl :refer  (refresh)]))
 
-(def constructor 
-  "The constructor for re-setting the application."
+(def system
+  "The current state of the application under development.
+
+  System is a map with :start and :stop keys (and possible more).
+  :start/:stop are 'system -> system' funcions to manipulate the system.
+  See also set-constructor for more detailed information"
   nil)
 
-(def system 
-  "The current state of the application under development."
+(def constructor
+  "The constructor for re-setting the application.
+  This constructs a 'system' map with at least :start & :stop fields.
+  See also set-constructor for more detailed information"
   nil)
 
-(defn- on-other-thread 
-  "The REPL start fails when a required namespace has compilation errors.
-  This problem can be handled by requiring namespaces in another thread.
-  For some reasons, this works with plain thread, but not with futures."
-  [func]
-  (doto (Thread. (reify Runnable (run [_] (func))))
-    .start))
 
-(defn- require-constructor-ns [& syms]
-  (println "quick-reset starts requiring the constructor namespaces")
-  (->> syms (map namespace) set (map symbol) (map require))
-  (println "quick-reset successfully required namespace of [" syms "]"))
+(defn refresh-sym
+  "refreshes a symbol by requiring the namespace and resolving the symbol"
+  [sym]
+  (-> sym namespace symbol require)
+  (resolve sym))
+
+(defn- adapt-protocol [method]
+  "This adaptor allows for using protocols,
+  without having an explicit dependency on them"
+  (fn  [{:keys  [state] :as wrapper}]
+    (assoc wrapper :state  (method state))))
 
 (defn set-constructor 
   "Set the constructor function that is used to bootstrap a fresh system.
@@ -50,36 +56,22 @@
   can be registered with (eg. in user.clj):
      (set-constructor 'your-namespace/your-constructor)"
   ([new-constructor]
-  (def loading-thread
-    (on-other-thread #(require-constructor-ns new-constructor)))
-  (alter-var-root #'constructor (constantly #((resolve new-constructor)))))
+  (alter-var-root #'constructor (constantly
+       (fn [old-sys]
+         ((refresh-sym new-constructor))))))
 
-  ([new-sys start-sys stop-sys]
-   (def loading-thread
-     (on-other-thread 
-       #(require-constructor-ns new-sys start-sys stop-sys)))
-   (letfn [(act  [action]
-             (fn  [{:keys  [system] :as wrapper}]
-               (assoc wrapper :system  ((resolve action) system))))]
-     (alter-var-root #'constructor 
-       (constantly (fn [_] {:system ((resolve  new-sys)) 
-                            :start (act start-sys)
-                            :stop (act stop-sys)}))))))
-
-(defn- avoid-race-condition-with-constructor-requiring-thread 
-  "The thread should only be joined *after* the REPL has fully started.
-  This prevents startup failures when requiring erroneous namespaces.
-  Therefore, this call is postponed to the construct-system call rather
-  than doing it in the set-constructor call."
-  [] (.join loading-thread))
+  ([create-sys start-sys stop-sys]
+   (alter-var-root #'constructor (constantly
+       (fn [old-sys]
+           {:state ((refresh-sym create-sys))
+            :start (adapt-protocol (refresh-sym start-sys))
+            :stop (adapt-protocol (refresh-sym stop-sys))})))))
 
 (defn- construct-system
   "Bootstraps a new development system and stores it in the 'system' var.
   This state is currently a singleton and behaves a bit like a state monad."
   [] 
-  (avoid-race-condition-with-constructor-requiring-thread)
   (alter-var-root #'system constructor))
-  ;(alter-var-root #'system (constantly (constructor))))
 
 (defn- monadic-call [key]
   (when system
@@ -94,7 +86,7 @@
   "Shuts down the current development system."
   [] (monadic-call :stop) :stopped)
 
-(defn- go
+(defn go
   "Creates a fresh development system and starts it running."
   [] (construct-system) (start) :ready)
 
